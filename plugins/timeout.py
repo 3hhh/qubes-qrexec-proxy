@@ -21,12 +21,6 @@
 
 import asyncio
 import io
-import os
-import sys
-
-#import the plugin base class
-PLUGIN_DIR = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(1, PLUGIN_DIR)
 from plugins import QrexecProxyPlugin
 from plugins import connect_noblock
 

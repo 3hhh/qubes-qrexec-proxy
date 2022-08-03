@@ -19,12 +19,6 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-import os
-import sys
-
-#import the plugin base class
-PLUGIN_DIR = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(1, PLUGIN_DIR)
 from plugins.byte_limit import QrexecProxyPlugin_byte_limit
 
 class QrexecProxyPlugin_stop_dst(QrexecProxyPlugin_byte_limit):
