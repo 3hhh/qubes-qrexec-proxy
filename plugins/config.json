@@ -1,0 +1,13 @@
+{
+  "description": "Each item is a [plugin chain name] --> dict: plugins: [ordered list of plugins], config (optional): [plugin or index] --> [plugin config dict].",
+  "pass": { "plugins": [ "pass" ] },
+  "3pass": { "plugins": [ "pass", "pass", "pass" ] },
+  "limit": { "plugins": [ "byte_limit" ], "config": { "byte_limit": { "src2dst_limit": 10485760, "dst2src_limit": 2097152 } } },
+  "src2dst": { "plugins": [ "stop_dst" ] },
+  "dst2src": { "plugins": [ "stop_src" ] },
+  "sniff": { "plugins": [ "sniff" ], "config": { "0": { "decode": "str", "encoding": "ascii" } } },
+  "timeout": { "plugins": [ "timeout" ], "config": { "timeout": { "src2dst_timeout": 1, "dst2src_timeout": 1 } } },
+  "streamline": { "plugins": [ "streamline" ], "config": { "streamline": { "delay_write": 10 } } },
+  "one-way": { "plugins": [ "streamline", "timeout", "stop_dst" ], "config": { "timeout": { "src2dst_timeout": 5, "dst2src_timeout": 5 } } },
+  "none": { "plugins": [] }
+}

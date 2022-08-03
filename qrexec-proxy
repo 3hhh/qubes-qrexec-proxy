@@ -1,0 +1,8 @@
+#!/bin/bash
+
+SCRIPT_NAME="${BASH_SOURCE[0]##*/}"
+SCRIPT_DIR="$(readlink -f "${BASH_SOURCE[0]}")" || logger -t "$SCRIPT_NAME" "Failed to compute the script dir."
+SCRIPT_DIR="$(dirname "$SCRIPT_DIR")" || logger -t "$SCRIPT_NAME" "Failed to compute the script dir."
+
+#make sure stderr is not sent to the source VM
+python3 "$SCRIPT_DIR/$SCRIPT_NAME.py" "$@" 2> >(logger -t "$SCRIPT_NAME")

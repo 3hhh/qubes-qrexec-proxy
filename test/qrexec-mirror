@@ -1,0 +1,25 @@
+#!/bin/bash
+# A simple qrexec service for testing purposes.
+#
+# Without qrexec-proxy:
+# 1. Install to [dst vm] at `/etc/qubes-rpc/qrexec-mirror`.
+# 2. Allow connections from [source vm] to [dst vm] in dom0 via `qrexec-mirror * [source vm] [dst vm] allow`.
+# 3. Call in [source vm] via `qrexec-client-vm [dst vm] qrexec-mirror <<< "hello world"`.
+#
+# With qrexec-proxy:
+# 1. Install to [dst vm] at `/etc/qubes-rpc/qrexec-mirror`.
+# 2. Install & configure qubes-qrexec-proxy in [proxy vm].
+# 3. Allow the required qrexec calls in dom0 `/etc/qubes/policy.d/12-qrexec-test.policy`:
+#    ```
+#    #qrexec-mirror via qrexec-proxy
+#    qrexec-proxy +[chain]+[dst vm]+qrexec-mirror  [src vm]         [proxy vm]       allow
+#    qrexec-mirror *                               [proxy vm]       [dst vm]         allow
+#    ```
+# 4. Call in [source vm] via `qrexec-client-vm [proxy vm] qrexec-proxy+[chain]+[dst vm]+qrexec-mirror <<< "hello world"`.
+
+for arg in "$@" ; do
+  echo "$QREXEC_REMOTE_DOMAIN argument: $arg"
+done
+#echo "$QREXEC_REMOTE_DOMAIN sent: "
+#IMPORTANT: use cat - for performance tests or the local tee pipe may block everything
+tee "/tmp/qrexec-mirror.local"
