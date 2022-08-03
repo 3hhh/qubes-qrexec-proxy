@@ -43,7 +43,8 @@ the qrexec communication of the two VMs `src` and `dst`, i.e. `src <--> proxy <-
    Let's assume that you want to do some basic testing with the `timeout` chain, which loads a single plugin that
    breaks `qrexec` connections after a timeout. The supplied `config.json` already contains that.
 5. The below example will also assume that you test with a simple qrexec service that just mirrors incoming data.
-   To do this, you'd have to install the `./test/qrexec-mirror` file to the `dst` VM at `/etc/qubes-rpc/qrexec-mirror`.
+   To do this, you'd have to install the [./test/qrexec-mirror](https://github.com/3hhh/qubes-qrexec-proxy/blob/master/test/qrexec-mirror)
+   file to the `dst` VM at `/etc/qubes-rpc/qrexec-mirror`.
 6. In dom0, configure your RPC policy at e.g. `/etc/qubes/policy.d/12-qrexec-proxy.policy` to allow the proxying.
    For the above `timeout` example you'd have to add the following lines:
    ```
@@ -69,7 +70,7 @@ You can check the logs inside the `proxy` VM to see that the timeout was hit: `j
 
 ## Available Plugins
 
-See the plugins directory. Each plugin has a description at the top of its source code.
+See the [plugins directory](https://github.com/3hhh/qubes-qrexec-proxy/tree/master/plugins). Each plugin has a description at the top of its source code.
 
 ## Uninstall
 
