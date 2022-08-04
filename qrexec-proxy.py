@@ -78,12 +78,18 @@ async def communicate_source(r_pipe, w_pipe):
     :param r_pipe: Async pipe to read.
     :param w_pipe: Async pipe to write.
     '''
-    stdin = open_single_pipe(0, 'rb')
-    stdout = open_single_pipe(1, 'wb')
-    await asyncio.gather(
-        connect_noblock(stdin, w_pipe),
-        connect_noblock(r_pipe, stdout))
-    LOG.debug('communicate_source(): returned')
+    try:
+        stdin = open_single_pipe(0, 'rb')
+        stdout = open_single_pipe(1, 'wb')
+        await asyncio.gather(
+            connect_noblock(stdin, w_pipe),
+            connect_noblock(r_pipe, stdout))
+    finally:
+        r_pipe.close()
+        w_pipe.close()
+        stdin.close()
+        stdout.close()
+        LOG.debug('communicate_source(): returned')
 
 def open_single_pipe(pipe, mode):
     if not isinstance(pipe, int):
