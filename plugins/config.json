@@ -8,6 +8,7 @@
   "sniff": { "plugins": [ "sniff" ], "config": { "0": { "decode": "str", "encoding": "ascii" } } },
   "timeout": { "plugins": [ "timeout" ], "config": { "timeout": { "src2dst_timeout": 1, "dst2src_timeout": 1 } } },
   "streamline": { "plugins": [ "streamline" ], "config": { "streamline": { "delay_write": 10 } } },
+  "count": { "plugins": [ "count" ], "config": { "count": { "limit": 2, "limit_interval": 180 } } },
   "one-way": { "plugins": [ "streamline", "timeout", "stop_dst" ], "config": { "timeout": { "src2dst_timeout": 5, "dst2src_timeout": 5 } } },
   "none": { "plugins": [] }
 }

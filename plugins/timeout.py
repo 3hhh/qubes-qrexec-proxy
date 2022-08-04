@@ -31,7 +31,7 @@ class QrexecProxyPlugin_timeout(QrexecProxyPlugin):
     Logs will usually show a `TimeoutError` or a `BrokenPipeError`.
 
     Please note that a timeout alone won't stop a compromised VM from opening further qrexec connections. You might want
-    to consider using other plugins to stop it from doing that.
+    to consider using other plugins to stop it from doing that (e.g. the count plugin).
 
     Configuration parameters:
     `src2dst_timeout`: Number of seconds before the timeout hits in for the source to destination direction. -1 = infinite

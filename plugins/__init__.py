@@ -174,6 +174,13 @@ async def connect_noblock(reader: io.IOBase, writer: io.IOBase, close=True, size
             reader.close()
             writer.close()
 
+class QrexecProxyPluginException(Exception):
+    ''' Base class for plugin exceptions. '''
+    pass
+
+class AbortException(QrexecProxyPluginException):
+    ''' Thrown when the qrexec connection is meant to be aborted and the chain meant to be torn down. '''
+    pass
 
 class QrexecProxyPlugin(ABC):
     '''
