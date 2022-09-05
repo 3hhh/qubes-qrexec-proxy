@@ -20,6 +20,7 @@
 #
 
 import io
+import os
 import asyncio
 import logging
 from abc import ABC, abstractmethod
@@ -41,6 +42,27 @@ def get_logger(name=None):
         log.addHandler(JournalHandler())
     log.setLevel(logging.DEBUG)
     return log
+
+LOG = get_logger()
+
+def open_single_pipe(pipe, mode):
+    if not isinstance(pipe, int):
+        raise RuntimeError('Pipes should be identified by integers. Found: %s' % type(pipe))
+    #NOTES:
+    # - pipes are identified by integers
+    # - pipes always come in pairs - one sending end (w) and one receiving end (r), data goes from w to r --> a pipe is unidirectional
+    # - fdopen() returns some io.IOBase object
+    # - we need os.O_NONBLOCK as even asyncio will block to pipes otherwise (btw it also blocks to file operations)
+    os.set_blocking(pipe, False)
+    ret = os.fdopen(pipe, mode)
+    LOG.debug(f'opened {ret}')
+    return ret
+
+def open_pipe():
+    r, w = os.pipe()
+    r = open_single_pipe(r, 'rb')
+    w = open_single_pipe(w, 'wb')
+    return (r, w)
 
 async def read_full_noblock(reader: io.IOBase, size=-1):
     ''' Read from the given non-blocking reader until at least size bytes are read or EOF is reached.
@@ -176,19 +198,12 @@ async def connect_noblock(reader: io.IOBase, writer: io.IOBase, close=True, size
 
 class QrexecProxyPluginException(Exception):
     ''' Base class for plugin exceptions. '''
-    pass
 
 class AbortException(QrexecProxyPluginException):
     ''' Thrown when the qrexec connection is meant to be aborted and the chain meant to be torn down. '''
-    pass
 
-class QrexecProxyPlugin(ABC):
-    '''
-    Base class for plugins to inherit from.
-
-    In addition they must use a class name equal to `QrexecProxyPlugin_[plugin name]` to be scheduled
-    by the qrexec-proxy.
-    '''
+class _QrexecProxyPlugin(ABC):
+    ''' Internal base class. Not meant to be used by users. '''
 
     def __init__(self, logger, meta, config=None):
         ''' Constructor.
@@ -201,6 +216,14 @@ class QrexecProxyPlugin(ABC):
         self.config = config
         if not self.config:
             self.config = dict()
+
+class QrexecProxyPlugin(_QrexecProxyPlugin):
+    '''
+    Base class for plugins to inherit from.
+
+    In addition they must use a class name equal to `QrexecProxyPlugin_[plugin name]` to be scheduled
+    by the qrexec-proxy.
+    '''
 
     @abstractmethod
     async def proxy(self, src_r: io.IOBase, src_w: io.IOBase, dst_r: io.IOBase, dst_w: io.IOBase):
@@ -219,6 +242,58 @@ class QrexecProxyPlugin(ABC):
 
         :param src_r:  Readable binary file descriptor to receive data from the source.
         :param src_w:  Writable binary file descriptor to send data to the source.
+        :param dst_r:  Readable binary file descriptor to receive data from the destination.
+        :param dst_w:  Writable binary file descriptor to send data to the destination.
+        :return: Nothing.
+        '''
+
+class QrexecSourcePlugin(_QrexecProxyPlugin):
+    '''
+    Base class for source plugins to inherit from.
+
+    In addition they must use a class name equal to `QrexecSourcePlugin_[plugin name]` to be scheduled
+    by the qrexec-proxy.
+    '''
+
+    @abstractmethod
+    async def communicate_src(self, src_r: io.IOBase, src_w: io.IOBase):
+        '''
+        Read and write data from and to a sender (usually the source VM,
+        _not_ another plugin).
+
+        The file descriptors are non-blocking.
+
+        Implementations are expected to close the file descriptors as soon as they are done.
+        Otherwise they will be closed after this function returns.
+
+        Unhandled exceptions will abort the qrexec connection.
+
+        :param src_r:  Readable binary file descriptor to receive data from the source.
+        :param src_w:  Writable binary file descriptor to send data to the source.
+        :return: Nothing.
+        '''
+
+class QrexecDestinationPlugin(_QrexecProxyPlugin):
+    '''
+    Base class for destination plugins to inherit from.
+
+    In addition they must use a class name equal to `QrexecDestinationPlugin_[plugin name]` to be scheduled
+    by the qrexec-proxy.
+    '''
+
+    @abstractmethod
+    async def communicate_dst(self, dst_r: io.IOBase, dst_w: io.IOBase):
+        '''
+        Read and write data from and to a destination (usually the destination VM,
+        _not_ another plugin).
+
+        The file descriptors are non-blocking.
+
+        Implementations are expected to close the file descriptors as soon as they are done.
+        Otherwise they will be closed after this function returns.
+
+        Unhandled exceptions will abort the qrexec connection.
+
         :param dst_r:  Readable binary file descriptor to receive data from the destination.
         :param dst_w:  Writable binary file descriptor to send data to the destination.
         :return: Nothing.

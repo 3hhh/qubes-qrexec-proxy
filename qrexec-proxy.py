@@ -45,70 +45,20 @@ CONF_FILE = os.path.join(PLUGIN_DIR, 'config.json')
 #import the plugin base class
 sys.path.insert(1, PLUGIN_DIR)
 from plugins import QrexecProxyPlugin
-from plugins import connect_noblock
+from plugins import QrexecSourcePlugin
+from plugins import QrexecDestinationPlugin
+from plugins import QrexecProxyPluginException
 from plugins import get_logger
+from plugins import open_pipe
+
 LOG = get_logger()
+
+class PluginLoadFailedException(QrexecProxyPluginException):
+    ''' Raised when a plugin load operation fails. '''
 
 def error_out(msg):
     LOG.error(msg)
     sys.exit(1)
-
-async def communicate_destination(dst_vm, qrexec, r_pipe, w_pipe):
-    '''
-    Start a qrexec connection to communicate with the destination VM.
-
-    :param r_pipe: Async pipe to read.
-    :param w_pipe: Async pipe to write.
-    '''
-    try:
-        #NOTE: we redirect stderr to sys.stderr, knowing that the qrexec-proxy script will redirect it locally (otherwise stderr would go to the sending VM)
-        proc = await asyncio.create_subprocess_exec('/usr/lib/qubes/qrexec-client-vm', dst_vm, qrexec, stdin=r_pipe, stdout=w_pipe, stderr=sys.stderr)
-        ret = await proc.wait()
-    finally:
-        r_pipe.close()
-        w_pipe.close()
-    if ret != 0:
-        raise RuntimeError('A non-zero exit code %d was returned by qrexec-client-vm. Maybe Qubes OS disallowed the qrexec request?' % ret)
-    LOG.debug('communicate_destination(): returned')
-
-async def communicate_source(r_pipe, w_pipe):
-    '''
-    Read `sys.stdin` and write `sys.stdout` to communicate with the source VM.
-
-    :param r_pipe: Async pipe to read.
-    :param w_pipe: Async pipe to write.
-    '''
-    try:
-        stdin = open_single_pipe(0, 'rb')
-        stdout = open_single_pipe(1, 'wb')
-        await asyncio.gather(
-            connect_noblock(stdin, w_pipe),
-            connect_noblock(r_pipe, stdout))
-    finally:
-        r_pipe.close()
-        w_pipe.close()
-        stdin.close()
-        stdout.close()
-        LOG.debug('communicate_source(): returned')
-
-def open_single_pipe(pipe, mode):
-    if not isinstance(pipe, int):
-        raise RuntimeError('Pipes should be identified by integers. Found: %s' % type(pipe))
-    #NOTES:
-    # - pipes are identified by integers
-    # - pipes always come in pairs - one sending end (w) and one receiving end (r), data goes from w to r --> a pipe is unidirectional
-    # - fdopen() returns some io.IOBase object
-    # - we need os.O_NONBLOCK as even asyncio will block to pipes otherwise (btw it also blocks to file operations)
-    os.set_blocking(pipe, False)
-    ret = os.fdopen(pipe, mode)
-    LOG.debug(f'opened {ret}')
-    return ret
-
-def open_pipe():
-    r, w = os.pipe()
-    r = open_single_pipe(r, 'rb')
-    w = open_single_pipe(w, 'wb')
-    return (r, w)
 
 def handle_exception(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -122,6 +72,38 @@ async def proxy_wrapper(proxy, *pipes):
     finally:
         for pipe in pipes:
             pipe.close()
+
+def load_plugin(plugin, cls):
+    plugin_file = ''.join([PLUGIN_DIR, '/', plugin, '.py'])
+    try:
+        spec = importlib.util.spec_from_file_location(PLUGIN_DIR_NAME + '.' + plugin, plugin_file)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except FileNotFoundError as e:
+        raise PluginLoadFailedException('Could not load the plugin %s from the file %s. Does it not exist?' % (plugin, plugin_file)) from e
+
+    ret = None
+    cls_name = '_'.join([cls.__name__, plugin])
+    for _, member in inspect.getmembers(module, inspect.isclass):
+        if member.__name__ == cls_name and issubclass(member, cls):
+            ret = member
+            break
+    if not ret:
+        raise PluginLoadFailedException(f'The plugin {plugin} appears to be incorrectly implemented. No matching class {cls_name} found.')
+    return ret
+
+def instantiate_plugin(plugin, plugin_cls, chain, chain_conf=None, conf_index=0, meta=None):
+    pconf = None
+    if chain_conf:
+        #try index first (useful if the same plugin is used multiple times in a chain), plugin name second
+        try:
+            pconf = chain_conf[conf_index]
+        except KeyError:
+            pconf = chain_conf.get(plugin)
+
+    LOG.debug(f'Instantiating a {plugin_cls} object...')
+    lname = '_'.join([chain, plugin, str(conf_index)])
+    return plugin_cls(get_logger(lname), meta, config=pconf)
 
 async def main():
     #never let any unhandled exceptions slip to stdout or stderr (and thus the source VM)
@@ -157,51 +139,62 @@ async def main():
     if not isinstance(plugins, list):
         error_out('The chain %s was not found inside the configuration file %s. You need to define a dict of [plugin chain] --> plugins: [ordered list of plugins].' % (chain, CONF_FILE))
 
-    #load plugins: load first class named QrexecProxyPlugin_[plugin] and inheriting from QrexecProxyPlugin
+    #load source plugin
+    user_plugin = False
+    try:
+        src_plugin = plugins[0]
+        user_plugin = True
+    except IndexError:
+        src_plugin = 'default'
+
+    try:
+        src_plugin = load_plugin(src_plugin, QrexecSourcePlugin)
+        if user_plugin:
+            plugins.pop(0)
+    except PluginLoadFailedException:
+        src_plugin = load_plugin('default', QrexecSourcePlugin)
+
+    #load destination plugin
+    user_plugin = False
+    try:
+        dst_plugin = plugins[-1]
+        user_plugin = True
+    except IndexError:
+        dst_plugin = 'default'
+
+    try:
+        dst_plugin = load_plugin(dst_plugin, QrexecDestinationPlugin)
+        if user_plugin:
+            plugins.pop(-1)
+    except PluginLoadFailedException:
+        dst_plugin = load_plugin('default', QrexecDestinationPlugin)
+
+    #instantiate src_plugin & dst_plugin
+    chain_conf = conf.get(chain).get('config')
+    src_plugin = instantiate_plugin('src_plugin', src_plugin, chain, chain_conf=chain_conf, conf_index=0,  meta=meta)
+    dst_plugin = instantiate_plugin('dst_plugin', dst_plugin, chain, chain_conf=chain_conf, conf_index=-1, meta=meta)
+    LOG.debug(f'src_plugin: {src_plugin}')
+    LOG.debug(f'dst_plugin: {dst_plugin}')
+
+    #load proxy plugins: load first class named QrexecProxyPlugin_[plugin] and inheriting from QrexecProxyPlugin
     loaded_plugins = dict()
     for plugin in plugins:
         if loaded_plugins.get(plugin):
             continue
-
-        plugin_file = ''.join([PLUGIN_DIR, '/', plugin, '.py'])
-        try:
-            spec = importlib.util.spec_from_file_location(PLUGIN_DIR_NAME + '.' + plugin, plugin_file)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-        except FileNotFoundError:
-            error_out('Could not load the plugin %s from the file %s. Does it not exist?' % (plugin, plugin_file))
-
-        cls = None
-        cls_name = ''.join(['QrexecProxyPlugin_', plugin])
-        for _, member in inspect.getmembers(module, inspect.isclass):
-            if member.__name__ == cls_name and issubclass(member, QrexecProxyPlugin):
-                cls = member
-                break
-        if not cls:
-            error_out(f'The plugin %s appears to be incorrectly implemented. No matching class {cls_name} found.' % plugin)
-
-        loaded_plugins[plugin] = { 'module': module, 'class': cls }
+        cls = load_plugin(plugin, QrexecProxyPlugin)
+        loaded_plugins[plugin] = cls
     LOG.debug('Loaded plugins: %s' % loaded_plugins)
 
     #connect source VM
     #NOTE: whatever is written to the *_w part will appear at the *_r part, that's why it's _one_ pipe
     src_r, src_w = open_pipe()
     dst_r, dst_w = open_pipe()
-    awaitables = [ communicate_source(dst_r, src_w) ]
+    awaitables = [ src_plugin.communicate_src(dst_r, src_w) ]
 
     #connect plugins
     for i, plugin in enumerate(plugins):
-        cls = loaded_plugins[plugin]['class']
-        lname = '_'.join([chain, plugin, str(i)])
-        pconf = conf.get(chain).get('config') #chain config
-        if pconf:
-            #try index first (useful if the same plugin is used multiple times in a chain), plugin name second
-            try:
-                pconf = pconf[str(i)]
-            except KeyError:
-                pconf = pconf.get(plugin)
-        LOG.debug(f'cls: {cls}')
-        obj = cls(get_logger(lname), meta, config=pconf)
+        cls = loaded_plugins[plugin]
+        obj = instantiate_plugin(plugin, cls, chain, chain_conf=chain_conf, conf_index=i, meta=meta)
 
         r1, w1 = open_pipe()
         r2, w2 = open_pipe()
@@ -211,7 +204,7 @@ async def main():
         dst_w = w1
 
     #connect destination VM
-    awaitables.append(communicate_destination(destination_vm, qrexec, src_r, dst_w))
+    awaitables.append(dst_plugin.communicate_dst(src_r, dst_w))
 
     #run everything
     try:

@@ -1,6 +1,6 @@
 {
   "description": "Each item is a [plugin chain name] --> dict: plugins: [ordered list of plugins], config (optional): [plugin or index] --> [plugin config dict].",
-  "pass": { "plugins": [ "pass" ] },
+  "pass": { "plugins": [ "default", "pass", "default" ] },
   "3pass": { "plugins": [ "pass", "pass", "pass" ] },
   "limit": { "plugins": [ "byte_limit" ], "config": { "byte_limit": { "src2dst_limit": 10485760, "dst2src_limit": 2097152 } } },
   "src2dst": { "plugins": [ "stop_dst" ] },
